@@ -35,6 +35,7 @@ func Worker(mapf func(string, string) []KeyValue,
 	call("ID.GetID", new(struct{}), &id)
 
 	fmt.Printf("workerid %d", id)
+
 	for {
 		time.Sleep(time.Second)
 	}

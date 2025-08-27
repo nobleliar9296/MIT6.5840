@@ -7,17 +7,19 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
-	"sync"
+	"time"
 )
+
+const lease = 10 * time.Second
 
 type Master struct {
 	// Your definitions here.
 	filename string
-	mu       sync.Mutex
-	nextID   int
 }
 
 // Your code here -- RPC handlers for the worker to call.
+
+// give each worker an id to identify them
 func (m *serverId) GetID(_ *struct{}, reply *int) error {
 	m.mu.Lock()
 	m.nextID++
@@ -25,6 +27,23 @@ func (m *serverId) GetID(_ *struct{}, reply *int) error {
 	fmt.Println("Assign id")
 	m.mu.Unlock()
 	return nil
+}
+
+func (que *queue) getWork(workerId *int, reply *item) error {
+	que.mq.Lock()
+	defer que.mq.Unlock()
+
+	for i := range *que.que {
+		it := &(*que.que)[i]
+		if it.serverId != *workerId {
+			it.serverId = *workerId
+			it.time = time.Now().Add(5 * time.Second)
+			*reply = *it
+			return nil
+		}
+	}
+
+	return fmt.Errorf("no available work")
 }
 
 // an example RPC handler.
@@ -39,8 +58,15 @@ func (m *Master) Example(args *ExampleArgs, reply *ExampleReply) error {
 // start a thread that listens for RPCs from worker.go
 func (m *Master) server() {
 	rpc.Register(m)
+
+	// assign id to workers
 	sid := &serverId{}
 	rpc.RegisterName("ID", sid)
+
+	//get work
+	work := &getwork{}
+	rpc.RegisterName("Work", work)
+
 	rpc.HandleHTTP()
 	//l, e := net.Listen("tcp", ":1234")
 	sockname := masterSock()
@@ -68,7 +94,19 @@ func (m *Master) Done() bool {
 func MakeMaster(files []string, nReduce int) *Master {
 	m := Master{}
 
+	que := queue{que: make([]item, 0)}
+
 	// Your code here.
+	for num, filename := range os.Args[1:] {
+
+		// add it to the queue
+		que.que = append(que.que, item{filename, num, 0, 0, 0})
+
+		fmt.Printf("%v \n", st[num])
+		fmt.Println(filename)
+	}
+
+	fmt.Println(len(st))
 
 	m.server()
 	return &m

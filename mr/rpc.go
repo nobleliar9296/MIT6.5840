@@ -32,9 +32,18 @@ type serverId struct {
 	nextID int
 }
 
-type Queue struct {
-	filename    string
-	job_machine int
+type queue struct {
+	mq  sync.Mutex
+	que []item
+}
+
+// maintains the queue for
+type item struct {
+	filename string
+	jobId    int
+	serverId int
+	jobCat   int
+	time     int // give ten seconds
 }
 
 // Cook up a unique-ish UNIX-domain socket name
