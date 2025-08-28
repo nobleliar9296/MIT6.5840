@@ -34,11 +34,21 @@ func Worker(mapf func(string, string) []KeyValue,
 
 	call("ID.GetID", new(struct{}), &id)
 
-	fmt.Printf("workerid %d", id)
+	fmt.Printf("workerid %d\n", id)
+
+	var it Item
 
 	for {
-		time.Sleep(time.Second)
+
+		call("Q.GetWork", &id, &it)
+		if it.Done {
+			break
+		}
+		fmt.Printf("%v\n", it)
+		time.Sleep(2 * time.Second)
 	}
+
+	return
 
 }
 

@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"time"
 )
 
 //
@@ -27,23 +28,26 @@ type ExampleReply struct {
 
 // Add your RPC definitions here.
 
-type serverId struct {
+type ServerId struct {
 	mu     sync.Mutex
 	nextID int
 }
 
-type queue struct {
-	mq  sync.Mutex
-	que []item
+type Queue struct {
+	mq    sync.Mutex
+	que   []Item
+	doing []Item
 }
 
 // maintains the queue for
-type item struct {
-	filename string
-	jobId    int
-	serverId int
-	jobCat   int
-	time     int // give ten seconds
+type Item struct {
+	Filename string
+	JobId    int
+	ServerId int
+	JobCat   int
+	Time     time.Time // give ten seconds
+	Assigned bool
+	Done     bool
 }
 
 // Cook up a unique-ish UNIX-domain socket name

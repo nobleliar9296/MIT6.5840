@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
+	"slices"
+	"sync"
 	"time"
 )
 
@@ -14,13 +16,14 @@ const lease = 10 * time.Second
 
 type Master struct {
 	// Your definitions here.
-	filename string
+	mu   sync.Mutex
+	done bool
 }
 
 // Your code here -- RPC handlers for the worker to call.
 
 // give each worker an id to identify them
-func (m *serverId) GetID(_ *struct{}, reply *int) error {
+func (m *ServerId) GetID(_ *struct{}, reply *int) error {
 	m.mu.Lock()
 	m.nextID++
 	*reply = m.nextID
@@ -29,21 +32,30 @@ func (m *serverId) GetID(_ *struct{}, reply *int) error {
 	return nil
 }
 
-func (que *queue) getWork(workerId *int, reply *item) error {
+func (que *Queue) GetWork(workerId *int, reply *Item) error {
 	que.mq.Lock()
 	defer que.mq.Unlock()
 
-	for i := range *que.que {
-		it := &(*que.que)[i]
-		if it.serverId != *workerId {
-			it.serverId = *workerId
-			it.time = time.Now().Add(5 * time.Second)
+	for i := range que.que {
+		it := &(que.que)[i]
+		if it.ServerId != *workerId && !it.Assigned {
+			it.ServerId = *workerId
+			it.Time = time.Now().Add(lease)
+			it.Assigned = true
 			*reply = *it
+			que.doing = append(que.doing, *it)
+			fmt.Println("index i: ", i)
+			fmt.Printf("%v\n", que.que)
+			que.que = slices.Delete(que.que, i, i+1)
 			return nil
 		}
 	}
 
-	return fmt.Errorf("no available work")
+	fmt.Println("end work")
+	*reply = Item{Done: true}
+	fmt.Println("end work", reply)
+
+	return nil
 }
 
 // an example RPC handler.
@@ -56,16 +68,17 @@ func (m *Master) Example(args *ExampleArgs, reply *ExampleReply) error {
 }
 
 // start a thread that listens for RPCs from worker.go
-func (m *Master) server() {
+func (m *Master) server(que *Queue) {
 	rpc.Register(m)
 
 	// assign id to workers
-	sid := &serverId{}
+	sid := &ServerId{}
 	rpc.RegisterName("ID", sid)
 
 	//get work
-	work := &getwork{}
-	rpc.RegisterName("Work", work)
+	if err := rpc.RegisterName("Q", que); err != nil {
+		log.Fatalf("register Q: %v", err)
+	}
 
 	rpc.HandleHTTP()
 	//l, e := net.Listen("tcp", ":1234")
@@ -92,22 +105,20 @@ func (m *Master) Done() bool {
 // main/mrmaster.go calls this function.
 // nReduce is the number of reduce tasks to use.
 func MakeMaster(files []string, nReduce int) *Master {
-	m := Master{}
+	m := Master{done: false}
 
-	que := queue{que: make([]item, 0)}
+	que := &Queue{que: make([]Item, 0), doing: make([]Item, 0)}
 
 	// Your code here.
 	for num, filename := range os.Args[1:] {
 
 		// add it to the queue
-		que.que = append(que.que, item{filename, num, 0, 0, 0})
+		que.que = append(que.que, Item{filename, num, 0, 0, time.Time{}, false, false})
 
-		fmt.Printf("%v \n", st[num])
+		fmt.Printf("%v \n", que)
 		fmt.Println(filename)
 	}
 
-	fmt.Println(len(st))
-
-	m.server()
+	m.server(que)
 	return &m
 }
