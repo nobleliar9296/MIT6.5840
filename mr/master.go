@@ -17,30 +17,28 @@ type Master struct {
 	// Your definitions here.
 	mu   sync.Mutex
 	done bool
-	l net.Listener 
-	q *Queue
+	l    net.Listener
+	q    *Queue
 }
 
-// made a queue to keep track of jobs 
+// made a queue to keep track of jobs
 type Queue struct {
 	mq    sync.Mutex
-	que   []Item	// to assign 
-	doing []Item	// check if they are still alive
-	l net.Listener
+	que   []Item // to assign
+	doing []Item // check if they are still alive
+	l     net.Listener
 }
 
 // maintains the queue with all the information needed
 type Item struct {
-	Filename string // the name of the file
-	JobId    int	// keep track of the job number 
-	ServerId int   // the server that gets the job
-	JobCat   int   // -1 for mapf carries (total buckets) and positive for the nth reducef job
+	Filename string    // the name of the file
+	JobId    int       // keep track of the job number
+	ServerId int       // the server that gets the job
+	JobCat   int       // -1 for mapf carries (total buckets) and positive for the nth reducef job
 	Time     time.Time // give ten seconds
-	Assigned bool	// has this job been assigned and check if it still exists and the lease hasn't expired
-	Done     bool   // has the job been done, then it will be removed
+	Assigned bool      // has this job been assigned and check if it still exists and the lease hasn't expired
+	Done     bool      // has the job been done, then it will be removed
 }
-
-
 
 // Your code here -- RPC handlers for the worker to call.
 
@@ -53,28 +51,37 @@ func (m *ServerId) GetID(_ *struct{}, reply *int) error {
 	*reply = m.nextID
 
 	// TODO delete before submitting
-	fmt.Println("Assign id") 
+	fmt.Println("Assign id")
 	m.mu.Unlock()
 	return nil
 }
 
 func (m *Master) Finished(work *Work, _ *Empty) error {
-	que := m.q 
-	
+	que := m.q
+
 	// aquire the lock
 	que.mq.Lock()
 	defer que.mq.Unlock()
 
 	fmt.Println("Finished:", work)
-
+	fmt.Println(que.doing)
 
 	for i := 0; i < len(que.doing); i++ {
-		if (work.JobId == que.doing[i].JobId && work.ServerId == que.doing[i].ServerId) {
+		if work.JobId == que.doing[i].JobId && work.ServerId == que.doing[i].ServerId {
 			// remove work that has been completed
 			que.doing = append(que.doing[:i], que.doing[i+1:]...)
-			
+
 			// return
 			return nil
+		}
+		if que.doing[i].Time.Before(time.Now()) {
+			fmt.Println("lease expired:", que.doing[i])
+			// lease expired and wasn't finished
+			que.doing[i].Assigned = false
+
+			// remove from doing and put in que and won't be assigned to the same worker
+			que.que = append(que.que, que.doing[i])
+			que.doing = append(que.doing[:i], que.doing[i+1:]...)
 		}
 	}
 
@@ -87,34 +94,50 @@ func (m *Master) GetWork(workerId *int, reply *Work) error {
 	que.mq.Lock()
 	defer que.mq.Unlock()
 
+	allowReduce := true
+	for _, it := range que.que {
+		if it.JobCat < 0 { // map task pending
+			allowReduce = false
+			break
+		}
+	}
+	if allowReduce {
+		for _, it := range que.doing {
+			if it.JobCat < 0 { // map task in-flight
+				allowReduce = false
+				break
+			}
+		}
+	}
+
 	for i := range que.que {
 		it := &(que.que)[i]
 
-
+		// map jobs
 		if it.ServerId != *workerId && !it.Assigned && it.JobCat < 0 {
 
-			// keep track of the job state 
+			// keep track of the job state
 			it.ServerId = *workerId
 			it.Time = time.Now().Add(lease)
 			it.Assigned = true
-			
-			// assign values to the reply 
+
+			// assign values to the reply
 			reply.Filename = it.Filename
 			reply.JobId = it.JobId
 			reply.JobCat = it.JobCat
-			
+
 			// add the assigned job to a new pile
 			que.doing = append(que.doing, *it)
 			fmt.Println("work it:", it)
 
 			// Remove the assigned job from the pool
-			que.que = append(que.que[i+1:], que.que[:i]...)
+			que.que = append(que.que[:i], que.que[i+1:]...)
 
 			// checking the lease of all the work that is being done
 			for idx := 0; idx < len(que.doing); idx++ {
-				
+
 				// the job expired and the job wasn't finished put it on the pile in the front
-				if (que.doing[idx].Time.Before(time.Now())) {
+				if que.doing[idx].Time.Before(time.Now()) {
 
 					fmt.Println("lease expired:", que.doing[idx])
 					// lease expired and wasn't finished
@@ -142,13 +165,51 @@ func (m *Master) GetWork(workerId *int, reply *Work) error {
 			return nil
 
 		}
+
+		// reduce jobs
+		if allowReduce && !it.Assigned && it.ServerId != *workerId && it.JobCat >= 0 {
+
+			// keep track of the job state
+			it.ServerId = *workerId
+			it.Time = time.Now().Add(lease)
+			it.Assigned = true
+
+			// assign values to the reply
+			reply.Filename = it.Filename
+			reply.JobId = it.JobId
+			reply.JobCat = it.JobCat
+
+			// add the assigned job to a new pile
+			que.doing = append(que.doing, *it)
+			fmt.Println("work it:", it)
+
+			// Remove the assigned job from the pool
+			que.que = append(que.que[i+1:], que.que[:i]...)
+
+			// checking the lease of all the work that is being done
+			for idx := 0; idx < len(que.doing); idx++ {
+
+				// the job expired and the job wasn't finished put it on the pile in the front
+				if que.doing[idx].Time.Before(time.Now()) {
+
+					fmt.Println("lease expired:", que.doing[idx])
+					// lease expired and wasn't finished
+					que.doing[idx].Assigned = false
+
+					// remove from doing and put in que and won't be assigned to the same worker
+					que.que = append(que.que, que.doing[idx])
+					que.doing = append(que.doing[:idx], que.doing[idx+1:]...)
+				}
+			}
+
+			// return after assigning work
+			return nil
+
+		}
 	}
 
-	
-	
-
-	if len(que.que) == 0 && len(que.doing) == 0  {
-		go func(){
+	if len(que.que) == 0 && len(que.doing) == 0 {
+		go func() {
 			m.done = true
 			m.l.Close()
 		}()
@@ -156,9 +217,6 @@ func (m *Master) GetWork(workerId *int, reply *Work) error {
 		// TODO delete debug statement
 		fmt.Println("end work")
 		fmt.Println("end work", reply)
-	} else {
-		// tell worker to wait
-		reply.JobId = -1
 	}
 
 	return nil
@@ -181,7 +239,6 @@ func (m *Master) server() {
 	sid := &ServerId{}
 	rpc.RegisterName("ID", sid)
 
-
 	rpc.HandleHTTP()
 	//l, e := net.Listen("tcp", ":1234")
 	sockname := masterSock()
@@ -193,7 +250,7 @@ func (m *Master) server() {
 
 	// assign the net listener so that we ca
 	m.l = l
-	
+
 	go http.Serve(l, nil)
 }
 
@@ -211,7 +268,6 @@ func (m *Master) Done() bool {
 // main/mrmaster.go calls this function.
 // nReduce is the number of reduce tasks to use.
 func MakeMaster(files []string, nReduce int) *Master {
-	
 
 	que := &Queue{que: make([]Item, 0), doing: make([]Item, 0)}
 
@@ -229,14 +285,13 @@ func MakeMaster(files []string, nReduce int) *Master {
 
 	temp := make([]Item, 0)
 
-	for i:= 1; i <= nReduce; i++ {
+	for i := 1; i <= nReduce; i++ {
 		temp = append(temp, Item{"mr-", numJobs, 0, i, time.Time{}, false, false})
 	}
 
 	que.que = append(que.que, temp...)
 
-
-	m := Master{done: false, q:que}
+	m := Master{done: false, q: que}
 	m.server()
 	return &m
 }

@@ -40,29 +40,30 @@ func Worker(mapf func(string, string) []KeyValue,
 
 	for {
 
-		err := call("Master.GetWork", &id, &reply) 
+		err := call("Master.GetWork", &id, &reply)
 
 		if !err {
 			// end the process if the master has quit
 			break
 		}
 
+		if reply.JobId < 0 {
+			fmt.Println("waiting")
+			reply = Work{ServerId: id}
+		}
+
 		if reply.JobId >= 0 {
-		fmt.Printf("%v\n", reply)
+			fmt.Printf("%v\n", reply)
 		}
 		time.Sleep(2 * time.Second)
 
-		if  reply.JobId >= 0 {
-			err = call("Master.Finished", &reply, &Empty{})
-		} else {
-			fmt.Println("waiting")
-		}
+		err = call("Master.Finished", &reply, &Empty{})
 
 		if !err {
 			panic(err)
 		}
 
-		time.Sleep(2*time.Second)
+		time.Sleep(2 * time.Second)
 	}
 
 	return
