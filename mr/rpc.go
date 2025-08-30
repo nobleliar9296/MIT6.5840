@@ -10,7 +10,6 @@ import (
 	"os"
 	"strconv"
 	"sync"
-	"time"
 )
 
 //
@@ -33,22 +32,14 @@ type ServerId struct {
 	nextID int
 }
 
-type Queue struct {
-	mq    sync.Mutex
-	que   []Item
-	doing []Item
+type Work struct {
+	ServerId int
+	Filename string 
+	JobId 	 int
+	JobCat   int
 }
 
-// maintains the queue for
-type Item struct {
-	Filename string
-	JobId    int
-	ServerId int
-	JobCat   int
-	Time     time.Time // give ten seconds
-	Assigned bool
-	Done     bool
-}
+type Empty struct{}
 
 // Cook up a unique-ish UNIX-domain socket name
 // in /var/tmp, for the master.

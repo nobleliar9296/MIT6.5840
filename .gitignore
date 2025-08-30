@@ -6,3 +6,11 @@ api.key
 *mr-out-0
 
 mr-tmp
+
+
+*.o
+*.out
+*.exe
+*.dll
+*.so
+*.class

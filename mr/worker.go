@@ -36,16 +36,33 @@ func Worker(mapf func(string, string) []KeyValue,
 
 	fmt.Printf("workerid %d\n", id)
 
-	var it Item
+	reply := Work{ServerId: id}
 
 	for {
 
-		call("Q.GetWork", &id, &it)
-		if it.Done {
+		err := call("Master.GetWork", &id, &reply) 
+
+		if !err {
+			// end the process if the master has quit
 			break
 		}
-		fmt.Printf("%v\n", it)
+
+		if reply.JobId >= 0 {
+		fmt.Printf("%v\n", reply)
+		}
 		time.Sleep(2 * time.Second)
+
+		if  reply.JobId >= 0 {
+			err = call("Master.Finished", &reply, &Empty{})
+		} else {
+			fmt.Println("waiting")
+		}
+
+		if !err {
+			panic(err)
+		}
+
+		time.Sleep(2*time.Second)
 	}
 
 	return
