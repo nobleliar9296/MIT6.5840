@@ -8,8 +8,11 @@ import (
 	"log"
 	"net/rpc"
 	"os"
+	"sort"
 	"strconv"
 	"time"
+
+	"6.824/mr"
 )
 
 // Map functions return a slice of KeyValue.
@@ -73,9 +76,45 @@ func maped(work *Work, mapf func(string, string) []KeyValue) {
 
 }
 
+// for sorting by key.
+type ByKey []mr.KeyValue
+
+// for sorting by key.
+func (a ByKey) Len() int           { return len(a) }
+func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
+
 // takes in the work and uses reducef to run it and store values from files mr-z-Y
 // where z varies and Y is the nth reduce operation and stores the result in mr-out-Y
 func reduced(work *Work, reducef func(string, []string) string) {
+	pre := "mr-"
+	last := "-" + strconv.Itoa(work.JobCat)
+
+	kv := make([]KeyValue, 0)
+
+	for i := 1; i <= work.JobId; i++ {
+		fileName := pre + strconv.Itoa(i) + last
+
+		file, err := os.Open(fileName)
+		if err != nil {
+			panic(err)
+		}
+
+		dec := json.NewDecoder(file)
+
+		for {
+			var kva KeyValue
+			if err := dec.Decode(&kva); err != nil {
+				if err == io.EOF {
+					break // end of file
+				}
+				panic(err)
+			}
+			kv = append(kv, kva)
+		}
+	}
+
+	sort.Sort(ByKey(kv))
 
 }
 
