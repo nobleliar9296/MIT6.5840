@@ -34,7 +34,7 @@ type Item struct {
 	Filename string    // the name of the file
 	JobId    int       // keep track of the job number
 	ServerId int       // the server that gets the job
-	JobCat   int       // -1 for mapf carries (total buckets) and positive for the nth reducef job
+	JobCat   int       // -nreduce for mapf carries (total buckets) and positive for the nth reducef job
 	Time     time.Time // give ten seconds
 	Assigned bool      // has this job been assigned and check if it still exists and the lease hasn't expired
 	Done     bool      // has the job been done, then it will be removed
@@ -75,6 +75,8 @@ func (m *Master) Finished(work *Work, _ *Empty) error {
 			return nil
 		}
 		if que.doing[i].Time.Before(time.Now()) {
+
+			//TODO cleanup of files cause if crashed some will exist
 			fmt.Println("lease expired:", que.doing[i])
 			// lease expired and wasn't finished
 			que.doing[i].Assigned = false
@@ -102,10 +104,20 @@ func (m *Master) GetWork(workerId *int, reply *Work) error {
 		}
 	}
 	if allowReduce {
-		for _, it := range que.doing {
+		for idx, it := range que.doing {
 			if it.JobCat < 0 { // map task in-flight
 				allowReduce = false
-				break
+			}
+
+			// the job expired and the job wasn't finished put it on the pile in the front
+			if it.Time.Before(time.Now()) {
+
+				fmt.Println("lease expired:", it)
+				// lease expired and wasn't finished
+				it.Assigned = false
+				// remove from doing and put in que and won't be assigned to the same worker
+				que.que = append(que.que, it)
+				que.doing = append(que.doing[:idx], que.doing[idx+1:]...)
 			}
 		}
 	}
@@ -132,22 +144,6 @@ func (m *Master) GetWork(workerId *int, reply *Work) error {
 
 			// Remove the assigned job from the pool
 			que.que = append(que.que[:i], que.que[i+1:]...)
-
-			// checking the lease of all the work that is being done
-			for idx := 0; idx < len(que.doing); idx++ {
-
-				// the job expired and the job wasn't finished put it on the pile in the front
-				if que.doing[idx].Time.Before(time.Now()) {
-
-					fmt.Println("lease expired:", que.doing[idx])
-					// lease expired and wasn't finished
-					que.doing[idx].Assigned = false
-
-					// remove from doing and put in que and won't be assigned to the same worker
-					que.que = append(que.que, que.doing[idx])
-					que.doing = append(que.doing[:idx], que.doing[idx+1:]...)
-				}
-			}
 
 			// TODO delete debug statements
 			fmt.Println("que______________________________________________________________________________")
@@ -185,22 +181,6 @@ func (m *Master) GetWork(workerId *int, reply *Work) error {
 
 			// Remove the assigned job from the pool
 			que.que = append(que.que[i+1:], que.que[:i]...)
-
-			// checking the lease of all the work that is being done
-			for idx := 0; idx < len(que.doing); idx++ {
-
-				// the job expired and the job wasn't finished put it on the pile in the front
-				if que.doing[idx].Time.Before(time.Now()) {
-
-					fmt.Println("lease expired:", que.doing[idx])
-					// lease expired and wasn't finished
-					que.doing[idx].Assigned = false
-
-					// remove from doing and put in que and won't be assigned to the same worker
-					que.que = append(que.que, que.doing[idx])
-					que.doing = append(que.doing[:idx], que.doing[idx+1:]...)
-				}
-			}
 
 			// return after assigning work
 			return nil
@@ -275,7 +255,7 @@ func MakeMaster(files []string, nReduce int) *Master {
 	for num, filename := range os.Args[1:] {
 
 		// add it to the queue
-		que.que = append(que.que, Item{filename, num, 0, -nReduce, time.Time{}, false, false})
+		que.que = append(que.que, Item{filename, num + 1, 0, -nReduce, time.Time{}, false, false})
 
 		fmt.Printf("%v \n", que)
 		fmt.Println(filename)

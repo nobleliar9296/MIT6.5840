@@ -1,10 +1,14 @@
 package mr
 
 import (
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"log"
 	"net/rpc"
+	"os"
+	"strconv"
 	"time"
 )
 
@@ -22,22 +26,76 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
+// takes in the work and uses mapf to run it and store values in files named, mr-X-Y
+// where x is the jobid and y is the bucket number
+func maped(work *Work, mapf func(string, string) []KeyValue) {
+	file, err := os.Open(work.Filename)
+	if err != nil {
+		log.Fatal("Cannot open %v", work.Filename)
+	}
+
+	content, err := io.ReadAll(file)
+	if err != nil {
+		panic(err)
+	}
+
+	file.Close()
+
+	kv := mapf(work.Filename, string(content))
+
+	dict := make([][]KeyValue, 10)
+
+	for _, word := range kv {
+		temp := ihash(word.Key) % (-work.JobCat - 1)
+		dict[temp] = append(dict[temp], word)
+	}
+
+	// make the number of buckets positive
+	for i := 1; i <= -work.JobCat; i++ {
+		outFile := "mr-" + strconv.Itoa(work.JobId) + "-" + strconv.Itoa(i) + ".json"
+
+		file, err = os.Create(outFile)
+		if err != nil {
+			panic(err)
+		}
+		defer file.Close()
+
+		enc := json.NewEncoder(file)
+
+		// write each entry to file could have used an array or made a buffer
+		// TODO buffer optimization
+		for _, kva := range dict[i-1] {
+			if err := enc.Encode(&kva); err != nil {
+				panic(err)
+			}
+		}
+	}
+
+}
+
+// takes in the work and uses reducef to run it and store values from files mr-z-Y
+// where z varies and Y is the nth reduce operation and stores the result in mr-out-Y
+func reduced(work *Work, reducef func(string, []string) string) {
+
+}
+
 // main/mrworker.go calls this function.
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
 	// Your worker implementation here.
 
-	// uncomment to send the Example RPC to the master.
-
+	// get id for your worker implementation
 	id := 0
-
 	call("ID.GetID", new(struct{}), &id)
 
+	// TODO to delete
 	fmt.Printf("workerid %d\n", id)
 
+	// work that needs to be done
 	reply := Work{ServerId: id}
 
+	// infinite loop to keep working
 	for {
 
 		err := call("Master.GetWork", &id, &reply)
@@ -47,27 +105,36 @@ func Worker(mapf func(string, string) []KeyValue,
 			break
 		}
 
+		// if the server is waiting for the job
 		if reply.JobId < 0 {
-			fmt.Println("waiting")
 			reply = Work{ServerId: id}
+		} else {
+			// means it is a map job
+			if reply.JobCat < 0 {
+				maped(&reply, mapf)
+			} else {
+				// otherwise we perform a reduce job
+				reduced(&reply, reducef)
+			}
 		}
 
+		// TODO delete
 		if reply.JobId >= 0 {
 			fmt.Printf("%v\n", reply)
 		}
 		time.Sleep(2 * time.Second)
 
+		// call when the job is finished (removes it from the queue)
 		err = call("Master.Finished", &reply, &Empty{})
-
 		if !err {
 			panic(err)
 		}
 
+		//TODO remove
 		time.Sleep(2 * time.Second)
 	}
 
-	return
-
+	// end of Worker
 }
 
 // example function to show how to make an RPC call to the master.
