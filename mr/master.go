@@ -32,7 +32,7 @@ type Queue struct {
 // maintains the queue with all the information needed
 type Item struct {
 	Filename string    // the name of the file
-	JobId    int       // keep track of the job number
+	JobId    int       // keep track of the job number for map and for reduce it is number of files
 	ServerId int       // the server that gets the job
 	JobCat   int       // -nreduce for mapf carries (total buckets) and positive for the nth reducef job
 	Time     time.Time // give ten seconds
@@ -51,7 +51,7 @@ func (m *ServerId) GetID(_ *struct{}, reply *int) error {
 	*reply = m.nextID
 
 	// TODO delete before submitting
-	fmt.Println("Assign id")
+	// fmt.Println("Assign id")
 	m.mu.Unlock()
 	return nil
 }
@@ -63,8 +63,8 @@ func (m *Master) Finished(work *Work, _ *Empty) error {
 	que.mq.Lock()
 	defer que.mq.Unlock()
 
-	fmt.Println("Finished:", work)
-	fmt.Println(que.doing)
+	//fmt.Println("Finished:", work)
+	//fmt.Println(que.doing)
 
 	for i := 0; i < len(que.doing); i++ {
 		if work.JobId == que.doing[i].JobId && work.ServerId == que.doing[i].ServerId {
@@ -77,7 +77,7 @@ func (m *Master) Finished(work *Work, _ *Empty) error {
 		if que.doing[i].Time.Before(time.Now()) {
 
 			//TODO cleanup of files cause if crashed some will exist
-			fmt.Println("lease expired:", que.doing[i])
+			// fmt.Println("lease expired:", que.doing[i])
 			// lease expired and wasn't finished
 			que.doing[i].Assigned = false
 
@@ -140,13 +140,15 @@ func (m *Master) GetWork(workerId *int, reply *Work) error {
 
 			// add the assigned job to a new pile
 			que.doing = append(que.doing, *it)
-			fmt.Println("work it:", it)
+
+			//TODO delete
+			// fmt.Println("work it:", it)
 
 			// Remove the assigned job from the pool
 			que.que = append(que.que[:i], que.que[i+1:]...)
 
 			// TODO delete debug statements
-			fmt.Println("que______________________________________________________________________________")
+			/*fmt.Println("que______________________________________________________________________________")
 			for _, pt := range que.que {
 				fmt.Printf("%v\n", pt)
 			}
@@ -157,6 +159,7 @@ func (m *Master) GetWork(workerId *int, reply *Work) error {
 			}
 			fmt.Println("end doing*************************************************************************")
 
+			*/
 			// return after assigning work
 			return nil
 
@@ -177,7 +180,9 @@ func (m *Master) GetWork(workerId *int, reply *Work) error {
 
 			// add the assigned job to a new pile
 			que.doing = append(que.doing, *it)
-			fmt.Println("work it:", it)
+
+			// TODO delete
+			//fmt.Println("work it:", it)
 
 			// Remove the assigned job from the pool
 			que.que = append(que.que[i+1:], que.que[:i]...)
@@ -195,7 +200,7 @@ func (m *Master) GetWork(workerId *int, reply *Work) error {
 		}()
 
 		// TODO delete debug statement
-		fmt.Println("end work")
+		//fmt.Println("end work")
 		fmt.Println("end work", reply)
 	}
 
@@ -257,8 +262,9 @@ func MakeMaster(files []string, nReduce int) *Master {
 		// add it to the queue
 		que.que = append(que.que, Item{filename, num + 1, 0, -nReduce, time.Time{}, false, false})
 
-		fmt.Printf("%v \n", que)
-		fmt.Println(filename)
+		// TODO remove
+		//fmt.Printf("%v \n", que)
+		//fmt.Println(filename)
 	}
 
 	numJobs := len(que.que)

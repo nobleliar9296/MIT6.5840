@@ -10,9 +10,6 @@ import (
 	"os"
 	"sort"
 	"strconv"
-	"time"
-
-	"6.824/mr"
 )
 
 // Map functions return a slice of KeyValue.
@@ -77,7 +74,7 @@ func maped(work *Work, mapf func(string, string) []KeyValue) {
 }
 
 // for sorting by key.
-type ByKey []mr.KeyValue
+type ByKey []KeyValue
 
 // for sorting by key.
 func (a ByKey) Len() int           { return len(a) }
@@ -88,7 +85,7 @@ func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 // where z varies and Y is the nth reduce operation and stores the result in mr-out-Y
 func reduced(work *Work, reducef func(string, []string) string) {
 	pre := "mr-"
-	last := "-" + strconv.Itoa(work.JobCat)
+	last := "-" + strconv.Itoa(work.JobCat) + ".json"
 
 	kv := make([]KeyValue, 0)
 
@@ -116,6 +113,33 @@ func reduced(work *Work, reducef func(string, []string) string) {
 
 	sort.Sort(ByKey(kv))
 
+	oname := "mr-out-" + strconv.Itoa(work.JobCat)
+	ofile, _ := os.Create(oname)
+
+	//
+	// call Reduce on each distinct key in intermediate[],
+	// and print the result to mr-out-0.
+	//
+	i := 0
+	for i < len(kv) {
+		j := i + 1
+		for j < len(kv) && kv[j].Key == kv[i].Key {
+			j++
+		}
+		values := []string{}
+		for k := i; k < j; k++ {
+			values = append(values, kv[k].Value)
+		}
+		output := reducef(kv[i].Key, values)
+
+		// this is the correct format for each line of Reduce output.
+		fmt.Fprintf(ofile, "%v %v\n", kv[i].Key, output)
+
+		i = j
+	}
+
+	ofile.Close()
+
 }
 
 // main/mrworker.go calls this function.
@@ -129,7 +153,7 @@ func Worker(mapf func(string, string) []KeyValue,
 	call("ID.GetID", new(struct{}), &id)
 
 	// TODO to delete
-	fmt.Printf("workerid %d\n", id)
+	// fmt.Printf("workerid %d\n", id)
 
 	// work that needs to be done
 	reply := Work{ServerId: id}
@@ -159,9 +183,9 @@ func Worker(mapf func(string, string) []KeyValue,
 
 		// TODO delete
 		if reply.JobId >= 0 {
-			fmt.Printf("%v\n", reply)
+			// fmt.Printf("%v\n", reply)
 		}
-		time.Sleep(2 * time.Second)
+		// time.Sleep(2 * time.Second)
 
 		// call when the job is finished (removes it from the queue)
 		err = call("Master.Finished", &reply, &Empty{})
@@ -170,7 +194,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		}
 
 		//TODO remove
-		time.Sleep(2 * time.Second)
+		// time.Sleep(2 * time.Second)
 	}
 
 	// end of Worker
